@@ -1,0 +1,120 @@
+Jrenginys: Keturiy imčiy 8 bity sienkančio vidurkio skaitmeninis filtras. Išejimo skaičiaus reikšmê turi büti lygi pries buvusiy keturiy reikšmiy vidurkiui. 
+  Ivedus isejimo reikšmę i iSejimą, formuojamas impulsas, pažymintis naujos reiksmés atsiradima isejimo prievaduose. Rekomandacija: panaudoti 8 bity pločio 
+    ir 4 elementy gylio FIFO buferj, kurio elementai aritmetiskai sumuojami ir dalinami is 4 po kiekvieno naujo elemento jvedimo j FIFO buferj per jrenginio jejimą.
+
+
+
+
+
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+use IEEE.NUMERIC_STD.ALL;
+
+entity moving_avg_filter is
+    Port ( 
+        clk      : in  std_logic;
+        reset    : in  std_logic;
+        din      : in  std_logic_vector(7 downto 0); -- 8 bitų įėjimas
+        v_in     : in  std_logic;                    -- Naujų duomenų požymis
+        dout     : out std_logic_vector(7 downto 0); -- 8 bitų vidurkis
+        v_out    : out std_logic                     -- Išėjimo impulsas (Ready)
+    );
+end moving_avg_filter;
+
+architecture Behavioral of moving_avg_filter is
+    -- Apibrėžiame 4 elementų FIFO buferį
+    type fifo_array is array (0 to 3) of unsigned(7 downto 0);
+    signal fifo : fifo_array := (others => (others => '0'));
+    
+begin
+    process(clk, reset)
+        variable sum : unsigned(9 downto 0); -- Suma gali siekti 255*4 = 1020 (reikia 10 bitų)
+    begin
+        if reset = '1' then
+            fifo <= (others => (others => '0'));
+            dout <= (others => '0');
+            v_out <= '0';
+        elsif rising_edge(clk) then
+            if v_in = '1' then
+                -- FIFO postūmis: naujas elementas į pradžią, kiti pasislenka
+                fifo(0) <= unsigned(din);
+                fifo(1) <= fifo(0);
+                fifo(2) <= fifo(1);
+                fifo(3) <= fifo(2);
+
+                -- Skaičiuojame sumą (įskaitant naują reikšmę)
+                sum := ("00" & unsigned(din)) + 
+                       ("00" & fifo(0)) + 
+                       ("00" & fifo(1)) + 
+                       ("00" & fifo(2));
+
+                -- Daliname iš 4 (stumiame 2 bitais į dešinę) ir priskiriame išėjimui
+                dout <= std_logic_vector(sum(9 downto 2));
+                v_out <= '1'; -- Suformuojame impulsą
+                
+                -- Konsolės ataskaita (VHDL report)
+                report "IDETA: " & integer'image(to_integer(unsigned(din))) & 
+                       " | VIDURKIS: " & integer'image(to_integer(sum(9 downto 2)));
+            else
+                v_out <= '0'; -- Impulsas trunka vieną taktų ciklą
+            end if;
+        end if;
+    end process;
+end Behavioral;
+
+
+
+
+
+
+
+
+
+
+
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+use IEEE.NUMERIC_STD.ALL;
+
+entity tb_moving_avg is
+end tb_moving_avg;
+
+architecture sim of tb_moving_avg is
+    signal clk   : std_logic := '0';
+    signal reset : std_logic := '0';
+    signal din   : std_logic_vector(7 downto 0) := (others => '0');
+    signal v_in  : std_logic := '0';
+    signal dout  : std_logic_vector(7 downto 0);
+    signal v_out : std_logic;
+
+    constant clk_period : time := 20 ns;
+
+begin
+    -- Įrenginio prijungimas
+    uut: entity work.moving_avg_filter
+        port map (clk => clk, reset => reset, din => din, v_in => v_in, dout => dout, v_out => v_out);
+
+    -- Laikrodžio generavimas
+    clk_process : process
+    begin
+        clk <= '0'; wait for clk_period/2;
+        clk <= '1'; wait for clk_period/2;
+    end process;
+
+    -- Stimulai (Testavimas)
+    stim_proc: process
+    begin		
+        reset <= '1'; wait for 40 ns;
+        reset <= '0'; wait for 20 ns;
+
+        -- Paduodame reikšmes: 4, 8, 12, 16
+        -- Vidurkiai turėtų būti: (4+0+0+0)/4=1, (8+4+0+0)/4=3, (12+8+4+0)/4=6, (16+12+8+4)/4=10
+        
+        din <= std_logic_vector(to_unsigned(4, 8));  v_in <= '1'; wait for clk_period; v_in <= '0'; wait for clk_period*2;
+        din <= std_logic_vector(to_unsigned(8, 8));  v_in <= '1'; wait for clk_period; v_in <= '0'; wait for clk_period*2;
+        din <= std_logic_vector(to_unsigned(12, 8)); v_in <= '1'; wait for clk_period; v_in <= '0'; wait for clk_period*2;
+        din <= std_logic_vector(to_unsigned(16, 8)); v_in <= '1'; wait for clk_period; v_in <= '0'; wait for clk_period*2;
+        
+        wait;
+    end process;
+end sim;
