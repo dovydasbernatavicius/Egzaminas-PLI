@@ -1,0 +1,106 @@
+Įrenginys gauna 8 bitų duomenis iš sensoriaus. Tau reikia stebėti paskutines 3 reikšmes ir rasti, kuri iš jų yra didžiausia. 
+Jei ta didžiausia reikšmė viršija tavo nustatytą ribą (slenkstį), įrenginys turi uždegti pavojaus signalą.
+
+
+library IEEE;
+use IEEE.std_logic_1164.all;
+use IEEE.NUMERIC_STD.ALL;
+
+entity paskutiniai is
+    Port (
+        clk       : in  std_logic;
+        reset     : in  std_logic;
+        din       : in  std_logic_vector(7 downto 0);
+        threshold : in  std_logic_vector(7 downto 0);
+        max_out   : out std_logic_vector(7 downto 0);
+        alarm     : out std_logic
+    );
+end paskutiniai;
+
+architecture Behavioral of paskutiniai is
+    signal r1, r2, r3 : unsigned(7 downto 0) := (others => '0');
+    signal current_max : unsigned(7 downto 0);
+begin
+
+    process(clk, reset)
+    begin
+        if reset = '1' then
+            r1 <= (others => '0'); r2 <= (others => '0'); r3 <= (others => '0');
+        elsif rising_edge(clk) then
+            r3 <= r2;
+            r2 <= r1;
+            r1 <= unsigned(din);
+        end if;
+    end process;
+
+    current_max <= r1 when (r1 >= r2 and r1 >= r3) else
+                   r2 when (r2 >= r3) else
+                   r3;
+
+    max_out <= std_logic_vector(current_max);
+    alarm <= '1' when (current_max > unsigned(threshold)) else '0';
+
+end Behavioral;
+
+
+
+
+
+
+
+
+library IEEE;
+use IEEE.std_logic_1164.all;
+use IEEE.NUMERIC_STD.ALL;
+
+entity tb_paskutiniai is
+end tb_paskutiniai; -- Testbench entity visada tuščias
+
+architecture sim of tb_paskutiniai is
+    -- 1. SignalaI: „Laidai“, kuriais prijungsime tavo įrenginį
+    signal clk       : std_logic := '0';
+    signal reset     : std_logic := '0';
+    signal din       : std_logic_vector(7 downto 0) := (others => '0');
+    signal threshold : std_logic_vector(7 downto 0) := std_logic_vector(to_unsigned(50, 8)); -- Slenkstis = 50
+    signal max_out   : std_logic_vector(7 downto 0);
+    signal alarm     : std_logic;
+
+    constant clk_period : time := 20 ns;
+
+begin
+    -- 2. Prijungiame tavo „paskutiniai“ modulį (Unit Under Test - UUT)
+    uut: entity work.paskutiniai
+        port map (
+            clk => clk, reset => reset, din => din,
+            threshold => threshold, max_out => max_out, alarm => alarm
+        );
+
+    -- 3. Laikrodžio generavimas (tiksi kas 10 ns)
+    clk_process : process
+    begin
+        clk <= '0'; wait for clk_period/2;
+        clk <= '1'; wait for clk_period/2;
+    end process;
+
+    -- 4. SCENARIJUS: Čia mes bandome tavo įrenginį
+    stim_proc: process
+    begin		
+        reset <= '1'; wait for 40 ns; -- Pradžioje viską išvalome
+        reset <= '0'; wait for 20 ns;
+
+        -- PADUODAME SKAIČIUS:
+        -- 1 taktas: din = 10 (Max bus 10, Alarm = 0, nes 10 < 50)
+        din <= std_logic_vector(to_unsigned(10, 8)); wait for clk_period;
+        
+        -- 2 taktas: din = 60 (Max bus 60, Alarm turi tapti '1'!)
+        din <= std_logic_vector(to_unsigned(60, 8)); wait for clk_period;
+        
+        -- 3 taktas: din = 20 (Max vis dar 60, nes 60 buvo window'e. Alarm = 1)
+        din <= std_logic_vector(to_unsigned(20, 8)); wait for clk_period;
+
+        -- 4 taktas: din = 5 (Dabar 60 „iškrenta“ iš 3 reikšmių lango. Max bus 20. Alarm = 0)
+        din <= std_logic_vector(to_unsigned(5, 8)); wait for clk_period;
+
+        wait; -- Sustabdome testą
+    end process;
+end sim;
